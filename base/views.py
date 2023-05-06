@@ -8,25 +8,23 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.http import HttpResponse
 from django.contrib.auth.forms import UserCreationForm
-from .models import Room, Topic
+from .models import Room, Topic, Message
 from .forms import RoomForm
 
 # Create your views here.
 
 rooms = [
-    {'id': 1,
-     'name': "Let's learn Python!"},
-     {'id': 2,
-     'name': "Design with me"},
-     {'id': 3,
-     'name': "Front end developers"},
+    {"id": 1, "name": "Let's learn Python!"},
+    {"id": 2, "name": "Design with me"},
+    {"id": 3, "name": "Front end developers"},
 ]
+
 
 def login_page(request):
     page = "login_page"
     if request.user.is_authenticated:
-        return redirect(reverse('index'))
-    
+        return redirect(reverse("index"))
+
     if request.method == "POST":
         username = request.POST.get("username").lower()
         password = request.POST.get("password")
@@ -40,16 +38,18 @@ def login_page(request):
 
         if user is not None:
             login(request, user)
-            return redirect(reverse('index'))
+            return redirect(reverse("index"))
         else:
             messages.error(request, "Username/password does not exist!")
-    
-    context = {'page': page}
-    return render(request, 'base/login_register.html', context)
+
+    context = {"page": page}
+    return render(request, "base/login_register.html", context)
+
 
 def logout_user(request):
     logout(request)
-    return redirect('index')
+    return redirect("index")
+
 
 def register_page(request):
     #
@@ -63,36 +63,52 @@ def register_page(request):
             user.username = user.username.lower()
             user.save()
             login(request, user)
-            return redirect(reverse('index'))
+            return redirect(reverse("index"))
         else:
             messages.error(request, "An error occured during registration")
 
-    context = {'form': form}
-    return render(request, 'base/login_register.html', context)
+    context = {"form": form}
+    return render(request, "base/login_register.html", context)
+
 
 def index(request):
-    query = request.GET.get('q') if request.GET.get('q') != None else ''
+    query = request.GET.get("q") if request.GET.get("q") != None else ""
 
     rooms = Room.objects.filter(
-        Q(topic__name__icontains=query) |
-        Q(name__icontains=query) |
-        Q(description__icontains=query)
-        )
-    
+        Q(topic__name__icontains=query)
+        | Q(name__icontains=query)
+        | Q(description__icontains=query)
+    )
+
     room_count = rooms.count()
     topics = Topic.objects.all()
 
-    context = {'rooms': rooms, 'topics': topics, 'count': room_count}
-    return render(request, 'base/index.html', context)
+    context = {"rooms": rooms, "topics": topics, "count": room_count}
+    return render(request, "base/index.html", context)
+
 
 def room(request, pk):
-    this_room = Room.objects.get(id=pk)
-    
-    context = {'room': this_room}
+    room = Room.objects.get(id=pk)
+    participants = room.participants.all()
+    room_messages = room.message_set.all()
 
-    return render(request, 'base/room.html', context)
+    context = {
+        "room": room,
+        "room_messages": room_messages,
+        "participants": participants,
+    }
 
-@login_required(login_url='/login')
+    if request.method == "POST":
+        message = Message.objects.create(
+            user=request.user, room=room, body=request.POST.get("body")
+        )
+        room.participants.add(request.user)
+        return redirect("rooms", pk=room.id)
+
+    return render(request, "base/room.html", context)
+
+
+@login_required(login_url="/login")
 def create_room(request):
     form = RoomForm()
 
@@ -101,30 +117,32 @@ def create_room(request):
 
         if form.is_valid():
             form.save()
-            return redirect('index')
+            return redirect("index")
 
-    context = {'form': form}
-    return render(request, 'base/room_form.html', context)
+    context = {"form": form}
+    return render(request, "base/room_form.html", context)
 
-@login_required(login_url='/login')
+
+@login_required(login_url="/login")
 def update_room(request, pk):
     room = Room.objects.get(id=pk)
     form = RoomForm(instance=room)
 
     if request.user != room.host:
         return HttpResponse("You can't delete this!")
-    
+
     if request.method == "POST":
         form = RoomForm(request.POST, instance=room)
 
         if form.is_valid():
             form.save()
-            return redirect('index')
-        
-    context = {'form': form}
-    return render(request, 'base/room_form.html', context)
+            return redirect("index")
 
-@login_required(login_url='/login')
+    context = {"form": form}
+    return render(request, "base/room_form.html", context)
+
+
+@login_required(login_url="/login")
 def delete_room(request, pk):
     room = Room.objects.get(id=pk)
 
@@ -133,6 +151,20 @@ def delete_room(request, pk):
 
     if request.method == "POST":
         room.delete()
-        return redirect('index')
+        return redirect("index")
 
-    return render(request, 'base/delete.html', {'obj': room})
+    return render(request, "base/delete.html", {"obj": room})
+
+
+@login_required(login_url="/login")
+def delete_message(request, pk):
+    message = Message.objects.get(id=pk)
+
+    if request.user != message.user:
+        return HttpResponse("You can't delete this!")
+
+    if request.method == "POST":
+        message.delete()
+        return redirect("index")
+
+    return render(request, "base/delete.html", {"obj": message})
